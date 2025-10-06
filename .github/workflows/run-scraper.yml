@@ -1,0 +1,98 @@
+name: Run Scraper (daily & manual)
+
+on:
+  workflow_dispatch: {}          # 手动触发
+  schedule:
+    # GitHub Actions 的 cron 用 UTC。这里设为 07:00 UTC ≈ 巴黎时间 09:00（夏令时）。
+    # 若进入冬令时会变成巴黎 08:00；需要始终 09:00 请告诉我，我换成服务器 cron 方案。
+    - cron: "0 7 * * 1-5"       # 周一到周五
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Chrome (for Selenium/Chromedriver)
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Show Chrome version
+        run: |
+          which google-chrome || true
+          google-chrome --version || true
+          which chromium-browser || true
+          chromium-browser --version || true
+
+      - name: Install deps (best-effort)
+        run: |
+          if [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          else
+            echo "No requirements.txt, skip."
+          fi
+
+      # —— 运行脚本（尽量通用，不确定你的入口文件名时用兜底顺序）——
+      - name: Run scraper
+        env:
+          # 如需账号/token，放到仓库 Settings > Secrets and variables > Actions 里，然后在此引用：
+          # MY_TOKEN: ${{ secrets.MY_TOKEN }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -e
+          # 进入项目根目录（默认就是）
+          ls -la
+          # 确保有输出目录
+          mkdir -p output
+
+          # 依次尝试常见入口文件；如果你有固定入口，请告诉我改成固定命令
+          if [ -f main.py ]; then
+            python main.py
+          elif [ -f run.py ]; then
+            python run.py
+          elif [ -f scraper.py ]; then
+            python scraper.py
+          else
+            # 找第一个顶层 .py 当入口（可改）
+            ENTRY=$(ls -1 *.py 2>/dev/null | head -n1 || true)
+            if [ -n "$ENTRY" ]; then
+              echo "Auto-detected entry: $ENTRY"
+              python "$ENTRY"
+            else
+              echo "❌ 找不到入口文件（main.py/run.py/scraper.py 或顶层 *.py）" >&2
+              exit 1
+            fi
+          fi
+
+          # 如果你的脚本输出在别的地方，这里顺便拷到 output/
+          # 例如：cp some/path/output.csv output/output.csv
+
+      - name: Upload CSV artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-output
+          path: |
+            output/output.csv
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload logs (aid debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: |
+            **/*.log
+            output/*.log
+          if-no-files-found: ignore
+          retention-days: 7
