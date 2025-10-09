@@ -1,0 +1,47 @@
+name: Run Scraper Monthly (10:00 Europe/Paris)
+
+on:
+  schedule:
+    - cron: '0 8 1 * *'  # 08:00 UTC on the 1st
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # Align to 10:00 Europe/Paris (handles DST)
+      - name: Wait until 10:00 Europe/Paris
+        run: |
+          sudo ln -snf /usr/share/zoneinfo/Europe/Paris /etc/localtime
+          target_h=10
+          now_h=$(date +%H)
+          now_m=$(date +%M)
+          now_s=$(date +%S)
+          secs=$(( (target_h - now_h) * 3600 - now_m * 60 - now_s ))
+          if [ $secs -gt 0 ]; then
+            echo "Sleeping $secs seconds to reach 10:00 Europe/Paris…"
+            sleep $secs
+          else
+            echo "It's already past 10:00 Europe/Paris; continuing immediately."
+          fi
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scraper
+        run: |
+          python main.py
